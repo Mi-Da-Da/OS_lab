@@ -1,2 +1,3 @@
 # OS_lab
-操作系统实验报告  Operating System Lab Report
+这个仓库是用来存放操作系统课程的实验报告，我们小组的组员是：段俊宇、陈展、李相儒
+
