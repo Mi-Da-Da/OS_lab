@@ -55,8 +55,10 @@
  *               (5.3) try to merge low addr or high addr blocks. Notice: should change some pages's p->property correctly.
  */
 static free_area_t free_area;
-
+// 为两个变量类型设置宏名字
+// free_list 表示空闲块双向链表的链表头
 #define free_list (free_area.free_list)
+// nr_free 表示空闲页数量
 #define nr_free (free_area.nr_free)
 
 static void
@@ -65,28 +67,41 @@ default_init(void) {
     nr_free = 0;
 }
 
+// 标记从 base 开始、长度为 n 的一段页为可分配空闲页块
 static void
 default_init_memmap(struct Page *base, size_t n) {
+    // 块长需大于 0
     assert(n > 0);
+    // 初始化指针 p 指向输入参数 base 的地址
     struct Page *p = base;
+    // 对每个页结构体重置标志位 flags 与 property，清空引用计数
     for (; p != base + n; p ++) {
         assert(PageReserved(p));
         p->flags = p->property = 0;
         set_page_ref(p, 0);
     }
+    // 对块首页 base 设置 property = n，代表块长度
     base->property = n;
+    // 设置 PageProperty 标志
     SetPageProperty(base);
+    // 空闲页数量加 n
     nr_free += n;
+    // 将该块插入空闲链表中，按物理地址从低到高顺序排列
     if (list_empty(&free_list)) {
+        // list_empty 宏会检查 free_list 的前驱和后继是否都指向自身，若空闲链表为空，直接插入
         list_add(&free_list, &(base->page_link));
     } else {
+        // 若不为空，自头结点遍历链表
         list_entry_t* le = &free_list;
         while ((le = list_next(le)) != &free_list) {
+            // 找到当前链表节点对应的物理页 page
             struct Page* page = le2page(le, page_link);
+            // 如果当前要插入的块 base 的地址小于当前节点 page 的地址，在此节点前插入
             if (base < page) {
                 list_add_before(le, &(base->page_link));
                 break;
             } else if (list_next(le) == &free_list) {
+                // 否则在链表末尾插入
                 list_add(le, &(base->page_link));
             }
         }
@@ -95,19 +110,25 @@ default_init_memmap(struct Page *base, size_t n) {
 
 static struct Page *
 default_alloc_pages(size_t n) {
+    // 所需连续空闲页数量需大于 0
     assert(n > 0);
+    // 所需连续空闲页数量大于空闲页数量，则找不到合适的空闲块，返回空
     if (n > nr_free) {
         return NULL;
     }
+    // 自头节点遍历链表
     struct Page *page = NULL;
     list_entry_t *le = &free_list;
     while ((le = list_next(le)) != &free_list) {
+        // 找到当前链表节点对应的物理页 page
         struct Page *p = le2page(le, page_link);
+        // 若空闲页块大小比所求大，直接移出链表
         if (p->property >= n) {
             page = p;
             break;
         }
     }
+    // 将移除的空闲页删去后，更新链表中空闲页块信息，空闲页数量减少 n
     if (page != NULL) {
         list_entry_t* prev = list_prev(&(page->page_link));
         list_del(&(page->page_link));
@@ -125,6 +146,7 @@ default_alloc_pages(size_t n) {
 
 static void
 default_free_pages(struct Page *base, size_t n) {
+    // 以下直至下次注释用于将被释放的页块 base 初始化为空闲页块状态，分割其为数量为 n 的连续空闲页并插入空闲页链表
     assert(n > 0);
     struct Page *p = base;
     for (; p != base + n; p ++) {
@@ -150,10 +172,11 @@ default_free_pages(struct Page *base, size_t n) {
             }
         }
     }
-
+    // 自头节点遍历链表
     list_entry_t* le = list_prev(&(base->page_link));
     if (le != &free_list) {
         p = le2page(le, page_link);
+        // 如果存在前后相邻的页连续，合并为更大块
         if (p + p->property == base) {
             p->property += base->property;
             ClearPageProperty(base);
@@ -161,7 +184,7 @@ default_free_pages(struct Page *base, size_t n) {
             base = p;
         }
     }
-
+    // 更新 property 并删除被合并节点
     le = list_next(&(base->page_link));
     if (le != &free_list) {
         p = le2page(le, page_link);
