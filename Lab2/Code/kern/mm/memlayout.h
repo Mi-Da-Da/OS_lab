@@ -59,6 +59,11 @@ typedef struct {
     unsigned int nr_free;           // number of free pages in this free list
 } free_area_t;
 
+typedef struct {
+    list_entry_t free_list[16];     // 每个阶对应的空闲链表
+    unsigned int nr_free;           // 空闲链表中的空闲页数量
+} buddy_free_area_t;
+
 #endif /* !__ASSEMBLER__ */
 
 #endif /* !__KERN_MM_MEMLAYOUT_H__ */
