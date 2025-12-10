@@ -106,12 +106,13 @@ alloc_proc(void)
          *       char name[PROC_NAME_LEN + 1];               // Process name
          */
 
-        // LAB5 2313815_段俊宇_2313485_陈展_2310591_李相儒: (update LAB4 steps)
+        // LAB5 2313815_段俊宇_2313485_陈展_2310591_李相儒 : (update LAB4 steps)
         /*
          * below fields(add in LAB5) in proc_struct need to be initialized
          *       uint32_t wait_state;                        // waiting state
          *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
          */
+        // LAB4原有
         proc->state = PROC_UNINIT;
         proc->pid = -1;
         proc->runs = 0;
@@ -124,11 +125,14 @@ alloc_proc(void)
         proc->pgdir = boot_pgdir_pa;
         proc->flags = 0;
         memset(proc->name, 0, PROC_NAME_LEN+1);
-
+        list_init(&(proc->list_link));
+        list_init(&(proc->hash_link));
+     
+        // LAB5新增     
         proc->wait_state = 0;
         proc->cptr = NULL;
-        proc->yptr = NULL;
         proc->optr = NULL;
+        proc->yptr = NULL;
     }
     return proc;
 }
@@ -244,11 +248,15 @@ void proc_run(struct proc_struct *proc)
          */
         unsigned long intrflag;
         struct proc_struct *prev = current;
+        
         local_intr_save(intrflag);
         current = proc;
-        current->runs++;
-        lsatp(current->pgdir);
-        switch_to(&(prev->context), &(current->context));
+        
+        lsatp(proc->pgdir);
+        proc->need_resched = 0;
+        proc->runs++;
+        
+        switch_to(&(prev->context), &(proc->context));
         local_intr_restore(intrflag);
     }
 }
@@ -467,25 +475,21 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
      *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
      */
-    if((proc=alloc_proc())==NULL)
+    proc = alloc_proc();
+    if(proc==NULL)
         goto fork_out;
     if((setup_kstack(proc)!=0))
         goto bad_fork_cleanup_proc;
     if(copy_mm(clone_flags, proc)!=0)
         goto bad_fork_cleanup_kstack;
-    
+
     copy_thread(proc, stack, tf);
     proc->parent = current;
     assert(current->wait_state == 0);
-
-    bool intr_flag;
-    local_intr_save(intr_flag);
-    {
-        proc->pid = get_pid();
-        hash_proc(proc);
-        set_links(proc);
-    }
-    local_intr_restore(intr_flag);
+    
+    proc->pid = get_pid();
+    hash_proc(proc);
+    set_links(proc);
 
     wakeup_proc(proc);
 
@@ -717,7 +721,7 @@ load_icode(unsigned char *binary, size_t size)
     // Keep sstatus
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));
-    /* LAB5:EXERCISE1 2313815_段俊宇_2313485_陈展_2310591_李相儒
+    /* LAB5:EXERCISE1 YOUR CODE
      * should set tf->gpr.sp, tf->epc, tf->status
      * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
      *          tf->gpr.sp should be user stack top (the value of sp)
@@ -725,10 +729,18 @@ load_icode(unsigned char *binary, size_t size)
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
+    /* set user stack pointer */
     tf->gpr.sp = (uintptr_t)USTACKTOP;
+
+    /* set program entry point (sepc) */
     tf->epc = (uintptr_t)elf->e_entry;
+
+    /* set return value for exec in user mode (argc = 0) */
     tf->gpr.a0 = 0;
+
+    /* Adjust sstatus: clear SPP (so sret goes to user-mode), set SPIE (enable interrupts after sret) */
     tf->status = (sstatus & ~SSTATUS_SPP) | SSTATUS_SPIE;
+    
     ret = 0;
 out:
     return ret;

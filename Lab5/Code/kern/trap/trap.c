@@ -27,6 +27,23 @@ static void print_ticks()
 #endif
 }
 
+static int
+pgfault_handler(struct trapframe *tf) {
+    uintptr_t addr = tf->tval;
+    
+    if (current == NULL) {
+        print_trapframe(tf);
+        panic("page fault in kernel!");
+    }
+    
+    if (current->mm == NULL) {
+        print_trapframe(tf);
+        panic("page fault in kernel thread!");
+    }
+
+    return -E_INVAL;
+}
+
 /* idt_init - initialize IDT to each of the entry points in kern/trap/vectors.S */
 void idt_init(void)
 {
@@ -121,26 +138,20 @@ void interrupt_handler(struct trapframe *tf)
         // In fact, Call sbi_set_timer will clear STIP, or you can clear it
         // directly.
         // cprintf("Supervisor timer interrupt\n");
-        /* LAB3 EXERCISE1   2313815_段俊宇_2313485_陈展_2310591_李相儒  */
+        /* LAB3 EXERCISE1   2313815_段俊宇_2313485_陈展_2310591_李相儒 :  */
         /*(1)设置下次时钟中断- clock_set_next_event()
          *(2)计数器（ticks）加一
          *(3)当计数器加到100的时候，我们会输出一个`100ticks`表示我们触发了100次时钟中断，同时打印次数（num）加一
          * (4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
          */
-        ;
-        int num = 0;
-        while(1)
-        {
-            clock_set_next_event();
-            ticks++;
-            if(ticks==TICK_NUM)
+        clock_set_next_event();
+        ticks++;
+        if (ticks % TICK_NUM == 0) {
+            print_ticks();
+            if(current != NULL)
             {
-                cprintf("100ticks\n");
-                ticks = 0;
-                num++;
+                current->need_resched = 1;
             }
-            if(num == 10)
-                sbi_shutdown();
         }
         break;
     case IRQ_H_TIMER:
@@ -219,13 +230,37 @@ void exception_handler(struct trapframe *tf)
         cprintf("Environment call from M-mode\n");
         break;
     case CAUSE_FETCH_PAGE_FAULT:
-        cprintf("Instruction page fault\n");
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Fetch page fault\n");
+            print_trapframe(tf);
+            if (current != NULL) {
+                do_exit(-E_KILLED);
+            } else {
+                panic("kernel page fault");
+            }
+        }
         break;
     case CAUSE_LOAD_PAGE_FAULT:
-        cprintf("Load page fault\n");
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Load page fault\n");
+            print_trapframe(tf);
+            if (current != NULL) {
+                do_exit(-E_KILLED);
+            } else {
+                panic("kernel page fault");
+            }
+        }
         break;
     case CAUSE_STORE_PAGE_FAULT:
-        cprintf("Store/AMO page fault\n");
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Store/AMO page fault\n");
+            print_trapframe(tf);
+            if (current != NULL) {
+                do_exit(-E_KILLED);
+            } else {
+                panic("kernel page fault");
+            }
+        }
         break;
     default:
         print_trapframe(tf);
@@ -283,3 +318,4 @@ void trap(struct trapframe *tf)
         }
     }
 }
+

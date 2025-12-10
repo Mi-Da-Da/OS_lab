@@ -402,6 +402,7 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
             // alloc a page for process B
             struct Page *npage = alloc_page();
             assert(page != NULL);
+            assert(npage != NULL);
             /* LAB5:EXERCISE2 2313815_段俊宇_2313485_陈展_2310591_李相儒
              * replicate content of page to npage, build the map of phy addr of
              * nage with the linear addr start
@@ -422,7 +423,9 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              */
             void *src_kvaddr = page2kva(page);
             void *dst_kvaddr = page2kva(npage);
+            
             memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
+            
             int ret = page_insert(to, npage, start, perm);
             assert(ret == 0);
         }
@@ -672,4 +675,3 @@ static int get_pgtable_items(size_t left, size_t right, size_t start,
     }
     return 0;
 }
-
