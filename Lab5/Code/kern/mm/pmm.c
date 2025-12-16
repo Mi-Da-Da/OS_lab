@@ -382,7 +382,7 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
     do
     {
         // call get_pte to find process A's pte according to the addr start
-        pte_t *ptep = get_pte(from, start, 0), *nptep;
+        pte_t *ptep = get_pte(from, start, 0);
         if (ptep == NULL)
         {
             start = ROUNDDOWN(start + PTSIZE, PTSIZE);
@@ -392,42 +392,24 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
         // pte is NULL, just alloc a PT
         if (*ptep & PTE_V)
         {
-            if ((nptep = get_pte(to, start, 1)) == NULL)
+            if (get_pte(to, start, 1) == NULL)
             {
                 return -E_NO_MEM;
             }
-            uint32_t perm = (*ptep & PTE_USER);
-            // get page from ptep
+            uint32_t perm = (*ptep & (PTE_R | PTE_W | PTE_X | PTE_U));
+            bool cow = (perm & PTE_W) || (*ptep & PTE_COW);
+            if (cow)
+            {
+                perm = (perm & ~PTE_W) | PTE_COW;
+                *ptep = (*ptep & ~PTE_W) | PTE_COW;
+                tlb_invalidate(from, start);
+            }
             struct Page *page = pte2page(*ptep);
-            // alloc a page for process B
-            struct Page *npage = alloc_page();
-            assert(page != NULL);
-            assert(npage != NULL);
-            /* LAB5:EXERCISE2 2313815_段俊宇_2313485_陈展_2310591_李相儒
-             * replicate content of page to npage, build the map of phy addr of
-             * nage with the linear addr start
-             *
-             * Some Useful MACROs and DEFINEs, you can use them in below
-             * implementation.
-             * MACROs or Functions:
-             *    page2kva(struct Page *page): return the kernel vritual addr of
-             * memory which page managed (SEE pmm.h)
-             *    page_insert: build the map of phy addr of an Page with the
-             * linear addr la
-             *    memcpy: typical memory copy function
-             *
-             * (1) find src_kvaddr: the kernel virtual address of page
-             * (2) find dst_kvaddr: the kernel virtual address of npage
-             * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
-             * (4) build the map of phy addr of  nage with the linear addr start
-             */
-            void *src_kvaddr = page2kva(page);
-            void *dst_kvaddr = page2kva(npage);
-            
-            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
-            
-            int ret = page_insert(to, npage, start, perm);
-            assert(ret == 0);
+            int ret = page_insert(to, page, start, perm);
+            if (ret != 0)
+            {
+                return ret;
+            }
         }
         start += PGSIZE;
     } while (start != 0 && start < end);

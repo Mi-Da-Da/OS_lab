@@ -28,6 +28,10 @@ struct vma_struct
 #define VM_EXEC 0x00000004
 #define VM_STACK 0x00000008
 
+// page fault error code bits (software-defined for RISCV)
+#define PF_ERR_PRESENT 0x1
+#define PF_ERR_WRITE   0x2
+
 // the control struct for a set of vma using the same PDT
 struct mm_struct
 {
@@ -55,6 +59,8 @@ int dup_mmap(struct mm_struct *to, struct mm_struct *from);
 void exit_mmap(struct mm_struct *mm);
 uintptr_t get_unmapped_area(struct mm_struct *mm, size_t len);
 int mm_brk(struct mm_struct *mm, uintptr_t addr, size_t len);
+
+int do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr);
 
 extern volatile unsigned int pgfault_num;
 extern struct mm_struct *check_mm_struct;

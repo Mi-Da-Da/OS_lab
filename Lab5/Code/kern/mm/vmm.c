@@ -37,6 +37,8 @@
 static void check_vmm(void);
 static void check_vma_struct(void);
 
+volatile unsigned int pgfault_num = 0;
+
 // mm_create -  alloc a mm_struct & initialize it.
 struct mm_struct *
 mm_create(void)
@@ -242,6 +244,55 @@ void exit_mmap(struct mm_struct *mm)
         struct vma_struct *vma = le2vma(le, list_link);
         exit_range(pgdir, vma->vm_start, vma->vm_end);
     }
+}
+
+int do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr)
+{
+    pgfault_num++;
+    int ret = -E_INVAL;
+    addr = ROUNDDOWN(addr, PGSIZE);
+
+    struct vma_struct *vma = find_vma(mm, addr);
+    if (vma == NULL || addr < vma->vm_start)
+    {
+        return ret;
+    }
+
+    if ((error_code & PF_ERR_WRITE) && !(vma->vm_flags & VM_WRITE))
+    {
+        return ret;
+    }
+
+    pte_t *ptep = get_pte(mm->pgdir, addr, 0);
+    if (ptep == NULL || !(*ptep & PTE_V))
+    {
+        return ret;
+    }
+
+    if ((error_code & PF_ERR_WRITE) && (*ptep & PTE_COW))
+    {
+        struct Page *page = pte2page(*ptep);
+        uint32_t perm = (*ptep & (PTE_R | PTE_W | PTE_X | PTE_U));
+        perm = (perm | PTE_W) & ~PTE_COW;
+
+        if (page_ref(page) > 1)
+        {
+            struct Page *npage = alloc_page();
+            if (npage == NULL)
+            {
+                return -E_NO_MEM;
+            }
+            memcpy(page2kva(npage), page2kva(page), PGSIZE);
+            return page_insert(mm->pgdir, npage, addr, perm);
+        }
+        else
+        {
+            *ptep = (*ptep & ~PTE_COW) | PTE_W;
+            tlb_invalidate(mm->pgdir, addr);
+            return 0;
+        }
+    }
+    return ret;
 }
 
 bool copy_from_user(struct mm_struct *mm, void *dst, const void *src, size_t len, bool writable)

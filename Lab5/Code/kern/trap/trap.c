@@ -41,7 +41,11 @@ pgfault_handler(struct trapframe *tf) {
         panic("page fault in kernel thread!");
     }
 
-    return -E_INVAL;
+    uint32_t err = 0;
+    if (tf->cause == CAUSE_STORE_PAGE_FAULT) {
+        err |= PF_ERR_WRITE;
+    }
+    return do_pgfault(current->mm, err, addr);
 }
 
 /* idt_init - initialize IDT to each of the entry points in kern/trap/vectors.S */
